@@ -3,6 +3,7 @@ import json
 import math
 import random
 import time
+import copy
 from pathlib import Path
 
 import numpy as np
@@ -102,6 +103,10 @@ def main() -> None:
     model.train()
     start = time.time()
     global_step = 0
+    best_loss = float("inf")
+    best_epoch = -1
+    best_model_state = None
+    best_backbone_state = None
     for epoch in range(epochs):
         running = 0.0
         for x, _ in train_loader:
@@ -121,6 +126,11 @@ def main() -> None:
         avg = running / len(train_loader)
         log["train_loss"].append(avg)
         print(f"epoch={epoch+1}/{epochs} loss={avg:.6f} lr={scheduler.get_last_lr()[0]:.6e}")
+        if avg < best_loss:
+            best_loss = avg
+            best_epoch = epoch + 1
+            best_model_state = copy.deepcopy(model.state_dict())
+            best_backbone_state = copy.deepcopy(backbone.state_dict())
 
     elapsed = time.time() - start
     log["train_time_sec"] = elapsed
@@ -128,14 +138,33 @@ def main() -> None:
     out_dir = Path(cfg["train"].get("output_dir", "outputs"))
     out_dir.mkdir(parents=True, exist_ok=True)
     exp_name = cfg.get("name", cfg["objective"]["name"])
-    ckpt_path = out_dir / f"{exp_name}_backbone.pt"
-    torch.save(backbone.state_dict(), ckpt_path)
-    log["backbone_ckpt"] = str(ckpt_path)
+
+    best_full_path = out_dir / f"{exp_name}_best_full.pt"
+    best_backbone_path = out_dir / f"{exp_name}_best_backbone.pt"
+    last_full_path = out_dir / f"{exp_name}_last_full.pt"
+    last_backbone_path = out_dir / f"{exp_name}_last_backbone.pt"
+
+    if best_model_state is not None:
+        torch.save(best_model_state, best_full_path)
+    if best_backbone_state is not None:
+        torch.save(best_backbone_state, best_backbone_path)
+    torch.save(model.state_dict(), last_full_path)
+    torch.save(backbone.state_dict(), last_backbone_path)
+
+    log["best_epoch"] = best_epoch
+    log["best_train_loss"] = best_loss
+    log["best_full_ckpt"] = str(best_full_path)
+    log["best_backbone_ckpt"] = str(best_backbone_path)
+    log["last_full_ckpt"] = str(last_full_path)
+    log["last_backbone_ckpt"] = str(last_backbone_path)
 
     log_path = out_dir / f"{exp_name}_train_log.json"
     with open(log_path, "w", encoding="utf-8") as f:
         json.dump(log, f, indent=2)
-    print(f"saved_backbone={ckpt_path}")
+    print(f"saved_best_full={best_full_path}")
+    print(f"saved_best_backbone={best_backbone_path}")
+    print(f"saved_last_full={last_full_path}")
+    print(f"saved_last_backbone={last_backbone_path}")
     print(f"saved_log={log_path}")
 
 
